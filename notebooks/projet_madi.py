@@ -17,13 +17,17 @@ def factor_repr(f):
 class FactorGraph:
     """
     variables : Une dictionaire de nom:gum.DiscreteVariable
-    factors : Une dictionaire de nom:gum.Potential
-    edges : Une liste de couples (nom_var, nom_potentiel)
+    factors : Une liste de gum.Potential
+    edges : Une liste de couples (nom_var, id_potential)
     """
+    def __init__(self):
+        self.variables = {}
+        self.factors = []
+        self.edges = []
     
     def addVariable(self,v):
         """ Ajout de variable sous la forme de gum.DiscreteVariable """
-        self.variables.append(v)
+        self.variables[v.name()] = v
     
     def addFactor(self,p):
         """ Ajout de facteurs sous la forme de gum.Potential """
@@ -31,14 +35,12 @@ class FactorGraph:
     
     def build(self,bn):
         """ Construit un factor graph à partir d'un gum.BayesNet """
-        self.variables = []
-        self.factors = []
-        self.edges = {}
+        self.__init__()
         for i in bn.nodes():
             self.addVariable(bn.variable(i))
             self.addFactor(bn.cpt(i))
-            self.edges[bn.variable(i).name()] = bn.cpt(i)
-                
+            for v in bn.cpt(i).var_names:
+                self.edges.append((v,i))
 
     def show(self):
         """ Affichage d'un factor graph """
@@ -49,7 +51,7 @@ class FactorGraph:
                   width=0,height=0, style=filled,color="coral"];
             """
         for v in self.variables:
-            string += v.name() + ";"
+            string += v + ";"
         string += """
             node [shape=point];
             """
@@ -60,29 +62,43 @@ class FactorGraph:
             edge;
             """
         
-        for _,f in self.edges.items():
-            for vn in f.var_names:
-                string += factor_repr(f) + "--" + vn + ";\n"
+        for v_name,f_id in self.edges:
+            string += factor_repr(self.factors[f_id]) + "--" + v_name + ";\n"
 
         string += "}"
         g=dot.graph_from_dot_data(string)
         return SVG(g.create_svg())
     
-    def neighbours(self,variable):
-        n = []
-        for v,f in self.edges.items():
-            if variable in f.var_names:
-                for vn in f.var_names:
-                    if not vn in n and vn != variable and (vn == v or v == variable):
-                        n.append(vn)
-        return n
+    
+    def neighbours(self,elm):
+        if type(elm) == int:
+            return [v_name for (v_name,f_id) in self.edges if f_id == elm]
+        elif type(elm) == str:
+            return [f_id for (v_name,f_id) in self.edges if v_name == elm]
     
     def leaves(self):
-        l = []
-        for v in self.variables:
-            if self.edges[v.name()].toarray().size == 2:
-                l.append(v.name())
-        return l
+        return [f_id for (_,f_id) in self.edges if len(self.neighbours(f_id)) == 1]
+    
+    def shortest_path(self,starting_node,ending_node):
+        to_visit = self.neighbours(starting_node)
+        distances = {node:(starting_node,1) for node in to_visit}
+        while len(to_visit) > 0:
+            next_gen = []
+            for node in to_visit:
+                for neigh in self.neighbours(node):
+                    if (not neigh in distances.keys()) or distances[neigh][1] > distances[node][1] + 1:
+                        distances[neigh] = (node,distances[node][1] + 1)
+                        if neigh == ending_node:
+                            sequence = [neigh]
+                            while sequence[-1] != starting_node:
+                                sequence.append(distances[sequence[-1]][0])
+                            sequence.reverse()
+                            return sequence
+                            
+                        next_gen.append(neigh)
+            to_visit = next_gen
+        return None
+                    
 
 
 class TreeSumProductInference:
