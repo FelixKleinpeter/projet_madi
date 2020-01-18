@@ -99,117 +99,134 @@ class FactorGraph:
             to_visit = next_gen
         return None
                     
+class Message:
+    def __init__(self, sender, receiver, content=[]):
+        self.sender = sender
+        self.receiver = receiver
+        self.content = content
+        
+    def send(self, letterboxes):
+        letterboxes[self.receiver].append(self)
 
+def inference(instance, function):
+    # Initialisation
+    letterboxes = instance.letterboxes.copy()
+    root = np.random.randint(len(instance.fg.factors))
+    leaves = instance.fg.leaves()
+    if root in leaves:
+        leaves.remove(root)
+    paths = [instance.fg.shortest_path(leaf,root) for leaf in leaves]
+    
+    # ETAPE I
+    var_step = False
+    while sum(len(path) for path in paths) > 0:
+        for path in paths:
+            if len(path) > 0:
+                node = path.pop(0)
+                if var_step and node != root:
+                    p = gum.Potential()
+                    senders = []
+                    for m in letterboxes[node]:
+                        if m.sender != node and m.sender not in senders:
+                            p = p * m.content
+                            senders.append(m.sender)
+                    message = Message(node,path[0],p)
+                    message.send(letterboxes)
+                elif not var_step and node != root:
+                    message = function(letterboxes,node,path[0],instance.fg.factors[node])
+                    message.send(letterboxes)
+
+        var_step = not var_step
+
+    # ETAPE II
+    to_visit = [root]
+    visited = []
+
+    var_step = False
+    while len(to_visit) > 0:
+        next_gen = []
+        for node in to_visit:
+            for neigh in [n for n in instance.fg.neighbours(node) if not n in visited]:
+                visited.append(neigh)
+                next_gen.append(neigh)
+                if var_step:
+                    p = gum.Potential()
+                    senders = []
+                    for m in letterboxes[node]:
+                        if m.sender != neigh and m.sender not in senders:
+                            p = p * m.content
+                            senders.append(m.sender)
+                    message = Message(node,neigh,p)
+                    message.send(letterboxes)
+                else:
+                    message = function(letterboxes,node,neigh,instance.fg.factors[node])
+                    message.send(letterboxes)
+        var_step = not var_step
+        to_visit = next_gen
+
+    return letterboxes
+
+def sumProduct(letterboxes, sender, receiver, potential):
+    p = gum.Potential(potential)
+    senders = []
+    for m in letterboxes[sender]:
+        if m.sender != receiver and m.sender not in senders:
+            p = p * m.content
+            senders.append(m.sender)
+    content = p.margSumIn(receiver)
+
+    return Message(sender, receiver, content=content)
 
 class TreeSumProductInference:
     def __init__(self,f):
         self.fg = f
-        self.tables = {}
-
+        self.letterboxes = {}
+        for v in f.variables:
+            self.letterboxes[v] = []
+        for i in range(len(f.factors)):
+            self.letterboxes[i] = []
+    
     def makeInference(self):
         """ effectue les calculs de tous les messages """
-        
-        # Les noeuds à visiter, initialisés au feuilles de l'arbre
-        to_visit = self.fg.leaves()
-        # Les noeuds pour lequel les probalilités sont connues
-        visited = []
-        # La boîte aux lettres de chaque noeuds sous la forme d'un dictionnaire de listes de potentiels
-        letterbox = {v.name() : [] for v in self.fg.variables}
-        
-        while len(to_visit) > 0:
-            next_generation = []
-            # Parcours des noeuds de la génération en cours
-            for node in to_visit:
-                # Si un noeud a suffisament de messages dans sa boîte aux lettres pour calculer ses probabilités
-                if len(letterbox[node]) >= len(self.fg.edges[node].var_names) - 1:
-                    visited.append(node)
-                    # Calcul du potentiel du noeud
-                    potential = self.fg.edges[node]
-                    for m in letterbox[node]:
-                        potential = potential * m
-                    potential = potential.margSumIn(node)
-                    
-                    # Mise à jour de la table des probabilités de chaque noeuds
-                    self.tables[node] = potential
-                    
-                    # Parcours des voisins non explorés (ici ce seront les enfants du noeud)
-                    neighbours = self.fg.neighbours(node)
-                    for n in neighbours:
-                        if not n in visited:
-                            # Envoi du message du potentiel à l'enfant
-                            letterbox[n].append(potential)
-                            # Ajout de l'enfant dans les noeuds à explorer
-                            if not n in next_generation:
-                                next_generation.append(n)
-                else:
-                    # Si le noeud n'a pas suffisament de message, il faudra à nouveau l'exporer
-                    next_generation.append(node)
-            
-            # Les noeuds à explorer sont actualisés comme ceux de la génération suivante 
-            to_visit = next_generation
-
+        self.letterboxes = inference(self, sumProduct)
 
     def posterior(self, variable):
         """ retourne la distribution de la variable sous la forme d'un `gum.Potential` """
         try:
-            return self.tables[variable]
+            messages_received = self.letterboxes[variable]
+            for m in messages_received:
+                if m.content[0] < 0.999 and m.content[0] > 0.001:
+                    return m.content
         except KeyError:
             print("{} not found in variables, try to makeInference on the object.".format(variable))
             
+def maxProduct(letterboxes, sender, receiver, potential):
+    p = gum.Potential(potential)
+    for m in letterboxes[sender]:
+        p = p * m.content
+    p = p.margMaxIn(receiver)
+    best_index = p.argmax()[0][receiver]
+    p[best_index] = 1
+    p[1-best_index] = 0
+    
+    return Message(sender, receiver, content=p)
+
 class TreeMaxProductInference:
     def __init__(self,f):
         self.fg = f
-        self.most_likely_values = {}
+        self.letterboxes = {}
+        for v in f.variables:
+            self.letterboxes[v] = []
+        for i in range(len(f.factors)):
+            self.letterboxes[i] = []
 
     def makeInference(self):
         """ effectue les calculs de tous les messages """
-        
-        # Les noeuds à visiter, initialisés au feuilles de l'arbre
-        to_visit = self.fg.leaves()
-        # Les noeuds pour lequel les probalilités sont connues
-        visited = []
-        # La boîte aux lettres de chaque noeuds sous la forme d'un dictionnaire de listes de potentiels
-        letterbox = {v.name() : [] for v in self.fg.variables}
-        
-        while len(to_visit) > 0:
-            next_generation = []
-            # Parcours des noeuds de la génération en cours
-            for node in to_visit:
-                # Si un noeud a suffisament de messages dans sa boîte aux lettres pour calculer ses probabilités
-                if len(letterbox[node]) >= len(self.fg.edges[node].var_names) - 1:
-                    visited.append(node)
-                    # Calcul du potentiel du noeud
-                    potential = self.fg.edges[node]
-                    for m in letterbox[node]:
-                        potential = potential * m
-                    potential = potential.margMaxIn(node)
-                    best_index = potential.argmax()[0][node]
-                    potential[best_index] = 1                    
-                    potential[1-best_index] = 0
-                    
-                    # Mise à jour de la table des probabilités de chaque noeuds
-                    self.most_likely_values[node] = best_index
-                    
-                    # Parcours des voisins non explorés (ici ce seront les enfants du noeud)
-                    neighbours = self.fg.neighbours(node)
-                    for n in neighbours:
-                        if not n in visited:
-                            # Envoi du message du potentiel à l'enfant
-                            letterbox[n].append(potential)
-                            # Ajout de l'enfant dans les noeuds à explorer
-                            if not n in next_generation:
-                                next_generation.append(n)
-                else:
-                    # Si le noeud n'a pas suffisament de message, il faudra à nouveau l'exporer
-                    next_generation.append(node)
-            
-            # Les noeuds à explorer sont actualisés comme ceux de la génération suivante 
-            to_visit = next_generation
-
+        self.letterboxes = inference(self, maxProduct)
 
     def argmax(self):
         """ retourne un dictionnaire des valeurs des variables pour le MAP """
-        return self.most_likely_values
+        return {v:self.letterboxes[v][-1].content.argmax()[0][v] for v in self.fg.variables}
 
 def f_transform(potential,f=np.log):
     new_potential = gum.Potential(potential)
@@ -226,63 +243,32 @@ def f_transform(potential,f=np.log):
         new_potential[item] = p[item]
     return new_potential
 
+def maxSum(letterboxes, sender, receiver, potential):
+    p = f_transform(potential,np.log)
+    for m in letterboxes[sender]:
+        m_transform = f_transform(m.content,np.log)
+        p = p + m_transform
+    p = f_transform(p,np.exp)
+    p = p.margMaxIn(receiver)
+    best_index = p.argmax()[0][receiver]
+    p[best_index] = 1
+    p[1-best_index] = 0
+    
+    return Message(sender, receiver, content=p)
+
 class TreeMaxSumInference:
     def __init__(self,f):
         self.fg = f
-        self.most_likely_values = {}
+        self.letterboxes = {}
+        for v in f.variables:
+            self.letterboxes[v] = []
+        for i in range(len(f.factors)):
+            self.letterboxes[i] = []
 
     def makeInference(self):
         """ effectue les calculs de tous les messages """
-        
-        # Les noeuds à visiter, initialisés au feuilles de l'arbre
-        to_visit = self.fg.leaves()
-        # Les noeuds pour lequel les probalilités sont connues
-        visited = []
-        # La boîte aux lettres de chaque noeuds sous la forme d'un dictionnaire de listes de potentiels
-        letterbox = {v.name() : [] for v in self.fg.variables}
-        
-        while len(to_visit) > 0:
-            next_generation = []
-            # Parcours des noeuds de la génération en cours
-            for node in to_visit:
-                # Si un noeud a suffisament de messages dans sa boîte aux lettres pour calculer ses probabilités
-                if len(letterbox[node]) >= len(self.fg.edges[node].var_names) - 1:
-                    visited.append(node)
-                    # Calcul du potentiel du noeud
-                    potential = self.fg.edges[node]
-                    potential = f_transform(potential,np.log)
-                    for m in letterbox[node]:
-                        m_transform = f_transform(m,np.log)
-                        potential = potential + m_transform
-                    potential = f_transform(potential,np.exp)
-                    potential = potential.margMaxIn(node)
-                    best_index = np.argmax([potential[0], potential[1]])
-                    potential[best_index] = 1                    
-                    potential[1-best_index] = 0
-                    
-                    
-                    
-                    
-                    # Mise à jour de la table des probabilités de chaque noeuds
-                    self.most_likely_values[node] = best_index
-                    
-                    # Parcours des voisins non explorés (ici ce seront les enfants du noeud)
-                    neighbours = self.fg.neighbours(node)
-                    for n in neighbours:
-                        if not n in visited:
-                            # Envoi du message du potentiel à l'enfant
-                            letterbox[n].append(potential)
-                            # Ajout de l'enfant dans les noeuds à explorer
-                            if not n in next_generation:
-                                next_generation.append(n)
-                else:
-                    # Si le noeud n'a pas suffisament de message, il faudra à nouveau l'exporer
-                    next_generation.append(node)
-            
-            # Les noeuds à explorer sont actualisés comme ceux de la génération suivante 
-            to_visit = next_generation
-
+        self.letterboxes = inference(self, maxSum)
 
     def argmax(self):
         """ retourne un dictionnaire des valeurs des variables pour le MAP """
-        return self.most_likely_values
+        return {v:self.letterboxes[v][-1].content.argmax()[0][v] for v in self.fg.variables}
