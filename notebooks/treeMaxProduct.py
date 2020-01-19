@@ -6,6 +6,8 @@ from factorGraph import FactorGraph, Message, inference
 
             
 def maxProductFactor(letterboxes, sender, receiver, potential):
+    # Fonction de création de message pour les noeuds facteurs, effectue le produit et la marginalisation
+    # par le maximum des messages
     p = gum.Potential(potential)
     senders = []
     for m in letterboxes[sender]:
@@ -21,6 +23,7 @@ def maxProductFactor(letterboxes, sender, receiver, potential):
     return Message(sender, receiver, content=p)
 
 def maxProductVariables(letterboxes, sender, receiver, potential):
+    # Fonction de création de message pour les noeuds variables, effectue le produit des messages
     p = gum.Potential(potential)
     senders = []
     for m in letterboxes[sender]:
@@ -48,6 +51,7 @@ class TreeMaxProductInference:
         return {v:self.letterboxes[v][-1].content.argmax()[0][v] for v in self.fg.variables}
     
     def addEvidence(self,dic):
+        # Fonction d'ajout d'évidence dans une instance d'inférence
         for variable,value in dic.items():
             # Si le noeud est une feuille, on change sa valeur
             is_leave = False

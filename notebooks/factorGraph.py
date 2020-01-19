@@ -69,15 +69,18 @@ class FactorGraph:
     
     
     def neighbours(self,elm):
+        # Trouve les voisins d'un élement dans le graphe
         if type(elm) == int:
             return [v_name for (v_name,f_id) in self.edges if f_id == elm]
         elif type(elm) == str:
             return [f_id for (v_name,f_id) in self.edges if v_name == elm]
     
     def leaves(self):
+        # Trouve les noeuds facteurs feuilles
         return [f_id for (_,f_id) in self.edges if len(self.neighbours(f_id)) == 1]
     
     def shortest_path(self,starting_node,ending_node):
+        # Trouve le chemin le plus court entre un noeud de départ et un noeud d'arrivée
         to_visit = self.neighbours(starting_node)
         distances = {node:(starting_node,1) for node in to_visit}
         while len(to_visit) > 0:
@@ -98,6 +101,8 @@ class FactorGraph:
         return None
     
     def topo_order_in(self, root):
+        # Crée un 'ordre topologique' pour la première étape de l'inférence. La procédure va partir des feuilles
+        # et descendre vers la racine sans traverser un noeud facteur dont les parents ne sont pas connus.
         order = []
         order += self.leaves()
         to_visit = self.leaves()
@@ -130,6 +135,9 @@ class FactorGraph:
         return []
     
     def topo_order_out(self,root):
+        # Crée un ordre de visite des noeuds pour le retour de la racine vers les feuilles. Cet ordre ne tient pas en 
+        # compte les précédentes explorations et les liens de parentés des noeuds.
+        
         order = []
         order += [root]
         to_visit = [root]
@@ -151,6 +159,7 @@ class FactorGraph:
         return order
     
 class Message:
+    # Une classe permettant d'observer plus facilement les échanges de messages entre les noeuds
     def __init__(self, sender, receiver, content=[]):
         self.sender = sender
         self.receiver = receiver
@@ -167,9 +176,14 @@ class Message:
 
 
 def inference(instance, functionFactor, functionVariables):
+    # Cette fonction est commune aux trois inféreces (SumProduct, MaxSum et MaxProduct)  et fonctionne
+    # sur des factor tree cycliques mais pas issus de réseaux Bayésiens contenant un circuit.
+    
     # Initialisation
     letterboxes = instance.letterboxes.copy()
     leaves = instance.fg.leaves()
+    # Choix de la racine. Il est pris hors des feuilles pour régler certains problèmes, cela ne change pas
+    # tant que le graphe a des noeuds hors de ses feuilles.
     root = np.random.randint(len(instance.fg.factors))
     while root in leaves:
         root = np.random.randint(len(instance.fg.factors))
@@ -177,9 +191,11 @@ def inference(instance, functionFactor, functionVariables):
     
     # ETAPE I
     visited = []
+    # Parcours simple dans l'ordre topologique aller
     for node in order_in:
         visited.append(node)
         for neigh in [n for n in instance.fg.neighbours(node) if not n in visited]:
+            # Les fonctions de création de message vont dépendre du type d'inférence utilisée
             if type(node) == str:
                 message = functionVariables(letterboxes,node,neigh,gum.Potential())
             elif type(node) == int:
@@ -191,6 +207,8 @@ def inference(instance, functionFactor, functionVariables):
     order_out = instance.fg.topo_order_out(root)
     visited = []
     
+    # Parcours retour, si un noeud manque d'informations pour envoyer un message, il s'abstient et est
+    # replacé en deuxième position des noeuds à visiter.
     while len(order_out) > 0:
         node = order_out.pop(0)
         visited.append(node)
@@ -199,12 +217,15 @@ def inference(instance, functionFactor, functionVariables):
             order_out.insert(1,node)
         else:
             for neigh in [n for n in instance.fg.neighbours(node) if not n in visited]:
+                # Là aussi, l'exécution va dépendre du type d'inférence
                 if type(node) == str:
                     message = functionVariables(letterboxes,node,neigh,gum.Potential())
                 elif type(node) == int:
                     message = functionFactor(letterboxes,node,neigh,instance.fg.factors[node])
+                # Les noeuds n'envoient pas de messages aux noeuds desquels ils en ont reçus
                 if neigh not in [m.sender for m in letterboxes[node]]:
                     message.send(letterboxes)
     
 
     return letterboxes
+

@@ -5,7 +5,7 @@ import numpy as np
 from factorGraph import FactorGraph, Message, inference
 
 def sumProductFactors(letterboxes, sender, receiver, potential):
-    
+    # Fonction de création de message pour les noeuds facteurs, effectue le produit et la somme marginale des messages
     p = gum.Potential(potential)
     senders = []
     
@@ -18,6 +18,7 @@ def sumProductFactors(letterboxes, sender, receiver, potential):
     return Message(sender, receiver, content=content)
 
 def sumProductVariables(letterboxes, sender, receiver, potential):
+    # Fonction de création de message pour les noeuds variables, effectue le produit des messages
     p = gum.Potential(potential)
     senders = []
     
@@ -50,10 +51,7 @@ class TreeSumProductInference:
             print("Inference didn't work, maybe because the graph comes from a cyclic Bayesian network.".format(variable))
     
     def addEvidence(self,dic):
-        """
-        Si le noeud est déjà une feuille, on change sa valeur
-        Sinon, on ajoute au graphe un noeud facteur relié au noeud variable correspondant
-        """
+        # Fonction d'ajout d'évidence dans une instance d'inférence
         for variable,value in dic.items():
             # Si le noeud est une feuille, on change sa valeur
             is_leave = False

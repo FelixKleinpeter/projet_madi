@@ -10,6 +10,7 @@ from itertools import product
 
 
 def fill_binary_potential(potential):
+    # Transforme un potentiel quelconque en un potentiel adapté pour LDPC
     p = np.array(potential.toarray())
     shpe = p.shape
     p = np.reshape(p,p.size)
@@ -24,6 +25,7 @@ def fill_binary_potential(potential):
         potential.fillWith(0)
 
 def buildLDPC(bits,parity):
+    # Initialise les noeuds variables à 0.5 et remplis les potentiels de pc avec fill_binary_potential
     bn=gum.BayesNet('LDPC')
     for bit in bits:
         bn.add(gum.LabelizedVariable(bit,bit+'name',2))
@@ -42,3 +44,11 @@ def buildLDPC(bits,parity):
             fill_binary_potential(bn.cpt(i))
     
     return bn
+
+def CBE(message, fgb):
+    # Effectue une inférence MaxProduct sur l'instance donnée étant connus certaines informations
+    mpib=TreeMaxProductInference(fgb)
+    mpib.addEvidence(message)
+    mpib.makeInference() 
+    results = mpib.argmax()
+    return {k:v for k,v in results.items() if k not in message.keys()}

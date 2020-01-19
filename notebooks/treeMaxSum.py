@@ -6,6 +6,7 @@ from factorGraph import FactorGraph, Message, inference
 from itertools import product
 
 def f_transform(potential,f=np.log):
+    # Retourne l'application de la fonction f au potentiel donné
     new_potential = gum.Potential(potential)
     p = np.array(new_potential.toarray())
     shpe = p.shape
@@ -24,6 +25,8 @@ def f_transform(potential,f=np.log):
     return new_potential
 
 def maxSumFactors(letterboxes, sender, receiver, potential):
+    # Fonction de création de message pour les noeuds facteurs, effectue la somme des log-potentiels pour chaque message et 
+    # marginalise selon le maximum 
     p = f_transform(potential,np.log)
     senders = []
     for m in letterboxes[sender]:
@@ -40,6 +43,7 @@ def maxSumFactors(letterboxes, sender, receiver, potential):
     return Message(sender, receiver, content=p)
 
 def maxSumVariables(letterboxes, sender, receiver, potential):
+    # Fonction de création de message pour les noeuds variables, effectue le produit des messages
     p = gum.Potential(potential)
     senders = []
     for m in letterboxes[sender]:
@@ -67,10 +71,7 @@ class TreeMaxSumInference:
         return {v:self.letterboxes[v][-1].content.argmax()[0][v] for v in self.fg.variables}
     
     def addEvidence(self,dic):
-        """
-        Si le noeud est déjà une feuille, on change sa valeur
-        Sinon, on ajoute au graphe un noeud facteur relié au noeud variable correspondant
-        """
+        # Fonction d'ajout d'évidence dans une instance d'inférence
         for variable,value in dic.items():
             # Si le noeud est une feuille, on change sa valeur
             is_leave = False
